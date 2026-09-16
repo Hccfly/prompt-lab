@@ -151,18 +151,12 @@ VARIANTS = [
         "note": "固定 JSON 结构，可直接被程序解析消费",
         "build": v4_structured,
     },
-        {
+    {
         "id": "v5_conclusion_first",
         "name": "结论先行",
         "note": "先一句话结论再要点展开——适合给领导汇报的形态",
         "build": v5_conclusion_first,
     },
-    {
-            "id": "v5_conclusion_first",
-            "name": "结论先行",
-            "note": "先一句话结论再要点展开——适合给领导汇报的形态",
-            "build": v5_conclusion_first,
-        },
     {
             "id": "v6_for_boss",
             "name": "面向高管的摘要",
