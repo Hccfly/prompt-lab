@@ -95,6 +95,30 @@ def eval_classify(variant_id: str, results_dir: Path, samples: list[dict], no_ll
     return {"type": "accuracy", "correct": correct, "total": total, "accuracy": accuracy}
 
 
+def resolve_judge_total(parsed: dict | None, verdict: str) -> float | None:
+    """裁判打分容错：total 字段可能缺失或为 null（模型前后不一致），做四级兜底。
+
+    1. total 是数字 → 直接用；
+    2. 裁判给了 scores 四维 → 按加权公式重算（忠实0.3/简洁0.4/完整0.2/格式0.1）；
+    3. 从裁判文字里正则抠一个数字 → 用；
+    4. 都不行 → 返回 None（调用方判为无法解析）。
+    """
+    if parsed:
+        total = parsed.get("total")
+        if isinstance(total, (int, float)):
+            return float(total)
+        s = parsed.get("scores")
+        if isinstance(s, dict):
+            try:
+                return round(
+                    s["faithfulness"] * 0.3 + s["conciseness"] * 0.4
+                    + s["completeness"] * 0.2 + s["format"] * 0.1, 1)
+            except (KeyError, TypeError):
+                pass
+    m = re.search(r"(?:总分|total)[^\d]*([0-9]+(?:\.[0-9]+)?)", verdict)
+    if m:
+        return float(m.group(1))
+    return None
 
 JUDGE_SUMMARIZE = (
     "你是一名严格的摘要质量评审员。下面是原文和一篇候选摘要。\n"
@@ -126,9 +150,11 @@ def eval_summarize(variant_id: str, results_dir: Path, judge_model: str | None,
         verdict = chat(judge_msg, temperature=0, model=judge_model,
                        max_tokens=judge_max_tokens)
         parsed = extract_json(verdict)
-        if parsed and "total" in parsed:
-            scores.append(float(parsed["total"]))
-            print(f"    {rec_file.stem}: 总分 {parsed['total']} ｜ {parsed.get('reason', '')}")
+        total = resolve_judge_total(parsed, verdict)
+        if total is not None:
+            scores.append(total)
+            note = "" if isinstance((parsed or {}).get("total"), (int, float)) else "（容错兜底）"
+            print(f"    {rec_file.stem}: 总分 {total}{note} ｜ {(parsed or {}).get('reason', '')}")
         else:
             print(f"    {rec_file.stem}: 裁判输出无法解析，原文：{verdict[:80]}")
     avg = sum(scores) / len(scores) if scores else 0
@@ -169,10 +195,12 @@ def eval_extract(variant_id: str, results_dir: Path, judge_model: str | None,
         verdict = chat(judge_msg, temperature=0, model=judge_model,
                        max_tokens=judge_max_tokens)
         parsed = extract_json(verdict)
-        if parsed and "total" in parsed:
-            scores.append(float(parsed["total"]))
-            print(f"    {sample_id}: {parsed['total']} 分 ｜ 幻觉:{parsed.get('hallucination', '?')} ｜ "
-                  f"{parsed.get('reason', '')}")
+        total = resolve_judge_total(parsed, verdict)
+        if total is not None:
+            scores.append(total)
+            note = "" if isinstance((parsed or {}).get("total"), (int, float)) else "（容错兜底）"
+            print(f"    {sample_id}: {total} 分{note} ｜ 幻觉:{(parsed or {}).get('hallucination', '?')} ｜ "
+                  f"{(parsed or {}).get('reason', '')}")
         else:
             print(f"    {sample_id}: 裁判输出无法解析，原文：{verdict[:80]}")
     avg = sum(scores) / len(scores) if scores else 0
